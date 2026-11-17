@@ -238,9 +238,9 @@
 
   const META_LINE = /^(\[|\(|【)?\s*(verse|chorus|bridge|intro|outro|pre-chorus|hook|refrain|1절|2절|후렴|간주|verse\s*\d+|chorus\s*\d+)/i;
 
-  // 줄 끝·앞에 붙은 추임새("… 음", "Oh …")는 대표 소절에서 지운다
-  const FILLER_EDGE = /(^|\s)(음|아|어|오|우|와|예|네|oh+|ah+|uh+|eh|yeah|yeh|hey|woah|whoa|hmm|mmm|la|na|da|ooh|woo)\s*$/i;
-  const FILLER_HEAD = /^(음|아|어|오|우|와|예|네|oh+|ah+|uh+|eh|yeah|yeh|hey|woah|whoa|hmm|mmm|ooh|woo)\s+/i;
+  // 줄 끝·앞에 붙은 한국어 추임새("… 음")만 지운다. 영어 대사(Oh my love…)는 그대로 둔다.
+  const FILLER_EDGE = /(^|\s)(음|아|어|오|우|와|예|네)\s*$/;
+  const FILLER_HEAD = /^(음|아|어|오|우|와|예|네)\s+/;
 
   function trimFiller(line) {
     let s = String(line || '');
@@ -275,18 +275,23 @@
     }
     const seen = {};
     const out = [];
+    const breaks = [];
+    let pendingBreak = true;   // 빈 줄 다음에 시작하는 줄은 앞 구분과 잇지 않는다
     String(raw).split(/\r?\n/).forEach(function (line) {
       let s = stripTimestamp(line).replace(/\s+/g, ' ').trim();
-      if (!s) return;
-      if (META_LINE.test(s)) return;
-      if (/^[\-–—=~_*·.\s]+$/.test(s)) return;
+      if (!s) { pendingBreak = true; return; }
+      if (META_LINE.test(s)) { pendingBreak = true; return; }
+      if (/^[\-–—=~_*·.\s]+$/.test(s)) { pendingBreak = true; return; }
       s = s.replace(/^["“”'‘’「」]+|["“”'‘’「」]+$/g, '').trim();
       s = trimFiller(s);
       if (s.length < 2) return;
       out.push(s);
+      breaks.push(pendingBreak);
+      pendingBreak = false;
       seen[s] = (seen[s] || 0) + 1;
     });
     out.__repeat = seen;
+    out.__break = breaks;
     return out;
   }
 
@@ -375,6 +380,7 @@
    */
   function buildSnippets(lines, meta) {
     const repeat = lines.__repeat || {};
+    const breaks = lines.__break || [];
     const scores = lines.map(function (l) { return scoreLine(l, repeat); });
     const ranked = lines
       .map(function (line, i) { return { i: i, line: line, score: scores[i] }; })
@@ -401,7 +407,10 @@
         const b = p[1];
         if (a < 0 || b >= lines.length) return;
         if (scores[a] <= -90 || scores[b] <= -90) return;
+        if (breaks[b]) return;                     // 빈 줄로 구분된 다른 구절은 잇지 않는다
         if (lines[a] === lines[b]) return;        // 같은 줄을 두 번 뽑지 않는다
+        // 한두 글자 조각("당신의")은 두 줄 카드에서 어색하다
+        if (lines[a].replace(/\s/g, '').length < 4 || lines[b].replace(/\s/g, '').length < 4) return;
         // 한 줄이 다른 줄을 거의 그대로 담고 있으면 한 줄만 쓴다
         const na = lines[a].replace(/[^0-9A-Za-z가-힣]/g, '').toLowerCase();
         const nb = lines[b].replace(/[^0-9A-Za-z가-힣]/g, '').toLowerCase();
