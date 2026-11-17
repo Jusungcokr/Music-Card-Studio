@@ -117,6 +117,9 @@
     }
     if (rec.plainLyrics) s += 1.5;
     else if (rec.syncedLyrics) s += 0.5;
+    // 추임새가 줄마다 붙은 판본·줄 수가 너무 적은 판본은 뒤로
+    s -= Math.min(2.5, fillerTrouble(rec.plainLyrics || rec.syncedLyrics) * 0.45);
+    s += Math.min(0.8, lyricLineCount(rec) * 0.02);
     if (/未知|unknown album/i.test(rec.albumName || '')) s -= 0.2;
     return s;
   }
@@ -181,17 +184,18 @@
     }
 
     // 2) 제목 + 아티스트 구조 검색
-    if (!bestRecord(tried, title, artist)) {
-      for (let i = 0; i < Math.max(1, artists.length); i++) {
-        for (let j = 0; j < titles.length; j++) {
-          try {
-            const list = await searchStructured(titles[j], artists[i] || '');
-            recordsOf(list).forEach(record);
-          } catch (e) { if (e.message === 'rate') sawRate = true; }
-          if (bestRecord(tried, title, artist)) break;
-        }
-        if (bestRecord(tried, title, artist)) break;
-      }
+    //    정확 조회가 성공해도 같은 곡의 판본이 여러 개라, 한 번은 검색 결과도 보고
+    //    추임새가 섞이지 않은 깔끔한 판본을 고른다.
+    const structured = [];
+    for (let j = 0; j < Math.min(2, titles.length); j++) structured.push([titles[j], artists[0] || '']);
+    if (artists[1]) structured.push([titles[0], artists[1]]);
+    for (let k = 0; k < Math.min(structured.length, 3); k++) {
+      try {
+        const list = await searchStructured(structured[k][0], structured[k][1]);
+        recordsOf(list).forEach(record);
+      } catch (e) { if (e.message === 'rate') sawRate = true; }
+      const picked = bestRecord(tried, title, artist);
+      if (picked && fillerTrouble(picked.plainLyrics || picked.syncedLyrics) === 0) break;
     }
 
     // 3) 자유 검색
@@ -234,6 +238,30 @@
 
   const META_LINE = /^(\[|\(|【)?\s*(verse|chorus|bridge|intro|outro|pre-chorus|hook|refrain|1절|2절|후렴|간주|verse\s*\d+|chorus\s*\d+)/i;
 
+  // 줄 끝·앞에 붙은 추임새("… 음", "Oh …")는 대표 소절에서 지운다
+  const FILLER_EDGE = /(^|\s)(음|아|어|오|우|와|예|네|oh+|ah+|uh+|eh|yeah|yeh|hey|woah|whoa|hmm|mmm|la|na|da|ooh|woo)\s*$/i;
+  const FILLER_HEAD = /^(음|아|어|오|우|와|예|네|oh+|ah+|uh+|eh|yeah|yeh|hey|woah|whoa|hmm|mmm|ooh|woo)\s+/i;
+
+  function trimFiller(line) {
+    let s = String(line || '');
+    for (let i = 0; i < 3; i++) {
+      const before = s;
+      s = s.replace(FILLER_EDGE, '').replace(FILLER_HEAD, '').trim();
+      if (s === before) break;
+    }
+    return s;
+  }
+
+  function fillerTrouble(raw) {
+    let n = 0;
+    String(raw || '').split(/\r?\n/).forEach(function (line) {
+      const s = stripTimestamp(line).trim();
+      if (!s) return;
+      if (trimFiller(s) !== s) n++;
+    });
+    return n;
+  }
+
   function stripTimestamp(line) {
     return String(line == null ? '' : line)
       .replace(/^\s*\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]\s*/g, '')
@@ -253,6 +281,7 @@
       if (META_LINE.test(s)) return;
       if (/^[\-–—=~_*·.\s]+$/.test(s)) return;
       s = s.replace(/^["“”'‘’「」]+|["“”'‘’「」]+$/g, '').trim();
+      s = trimFiller(s);
       if (s.length < 2) return;
       out.push(s);
       seen[s] = (seen[s] || 0) + 1;
@@ -424,7 +453,10 @@
     toLines: toLines,
     keywordsOf: keywordsOf,
     stripTimestamp: stripTimestamp,
+    trimFiller: trimFiller,
     isFillerLine: isFillerLine,
+    scoreRecord: scoreRecord,
+    bestRecord: bestRecord,
     norm: norm
   };
 })(window);
