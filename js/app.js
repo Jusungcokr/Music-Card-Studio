@@ -5,6 +5,8 @@
   const DATA = window.MusicData;
   const COLOR = window.MusicColor;
   const LOOKUP = window.MusicLookup || null;
+  const LYRICS = window.MusicLyrics || null;
+  const CURATOR = window.MusicCurator || null;
   const RENDER = function (ctx, w, h, d, theme, accent, ratio, i) {
     window.MusicRender.render(ctx, w, h, d, theme, accent, ratio, i);
   };
@@ -29,8 +31,15 @@
     theme: 'vinyl',
     cover: null,
     // 자동 채우기로 들어간 장르·발매년도 (다른 곡을 불러올 때 헌값을 지우기 위해 기억)
-    autoMeta: { genre: '', year: '' }
+    autoMeta: { genre: '', year: '' },
+    // 자동으로 채운 값인지 (사용자가 직접 고친 글은 덮어쓰지 않기 위해)
+    auto: { lyrics: false, reason: false },
+    autoTags: [],
+    reasonVariant: 0,
+    lyric: { snippets: [], index: 0, keywords: [], loading: false, total: 0 }
   };
+
+  let assistToken = 0;
 
   let renderQueued = false;
   let toastTimer = null;
@@ -194,6 +203,7 @@
     }
     renderTags();
     scheduleRender();
+    scheduleReasonRefresh();
   }
 
   function addCustomTag() {
@@ -402,6 +412,9 @@
     syncFormFromState();
     scheduleRender();
 
+    // 곡이 정해지면 가사·추천 이유·무드 태그를 이 곡 기준으로 다시 채운다 (기다리지 않고 진행)
+    fillAssistForSong(true);
+
     let coverOk = false;
     if (info.coverUrls && info.coverUrls.length) {
       coverOk = await loadCoverFromUrls(info.coverUrls, info.title ? info.title + ' 커버' : '앨범 커버');
@@ -564,6 +577,201 @@
     });
   }
 
+  /* ---------- 가사 자동 추출 · 추천 이유 자동 작성 ---------- */
+
+  function setAssistNote(which, text, tone) {
+    const el = $(which === 'lyrics' ? '#lyrics-note' : '#reason-note');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'assist-note' + (tone ? ' ' + tone : '');
+  }
+
+  function showAssistBtn(which, on) {
+    const btn = $(which === 'lyrics' ? '#btn-lyric-next' : '#btn-reason-rewrite');
+    if (!btn) return;
+    if (on) btn.removeAttribute('hidden');
+    else btn.setAttribute('hidden', '');
+  }
+
+  function assistInput() {
+    return {
+      title: state.title,
+      artist: state.artist,
+      genre: state.genre,
+      year: state.year,
+      tags: state.tags.slice(),
+      lyrics: state.lyrics,
+      lyricKeywords: state.lyric.keywords.slice()
+    };
+  }
+
+  /** 추천 이유 자동 작성 — 사용자가 직접 쓴 글이 있으면 force 없이는 건드리지 않는다 */
+  function writeReason(force) {
+    if (!CURATOR) return false;
+    if (!state.title.trim() && !state.artist.trim()) return false;
+    if (!force && state.reason.trim() && !state.auto.reason) return false;
+    const text = CURATOR.build(assistInput(), state.reasonVariant);
+    if (!text) return false;
+    state.reason = text;
+    state.auto.reason = true;
+    $('#f-reason').value = text;
+    updateCounters();
+    scheduleRender();
+    return true;
+  }
+
+  function writeLyrics(text) {
+    const val = clip(String(text || ''), 180).trim();
+    if (!val) return false;
+    state.lyrics = val;
+    state.auto.lyrics = true;
+    $('#f-lyrics').value = val;
+    updateCounters();
+    scheduleRender();
+    return true;
+  }
+
+  /** 장르·가사 분위기에 맞춘 무드 태그 2~3개 */
+  function refreshAutoTags(fresh) {
+    if (!CURATOR) return;
+    if (fresh) {
+      // 새 곡: 앞 곡에서 자동으로 골랐던 태그는 지우고, 직접 넣은 태그만 남긴다
+      state.tags = state.tags.filter(function (t) { return DATA.TAG_OPTIONS.indexOf(t) === -1; });
+    } else {
+      const prev = state.autoTags;
+      state.tags = state.tags.filter(function (t) { return prev.indexOf(t) === -1; });
+    }
+    const next = CURATOR.suggestTags(assistInput());
+    next.forEach(function (t) {
+      if (state.tags.indexOf(t) === -1 && state.tags.length < 6) state.tags.push(t);
+    });
+    state.autoTags = state.tags.filter(function (t) { return next.indexOf(t) !== -1; });
+    renderTags();
+    scheduleRender();
+  }
+
+  function applySnippet(i) {
+    const list = state.lyric.snippets;
+    if (!list || !list.length) return false;
+    const idx = ((i % list.length) + list.length) % list.length;
+    state.lyric.index = idx;
+    return writeLyrics(list[idx]);
+  }
+
+  function nextSnippet() {
+    const list = state.lyric.snippets;
+    if (!list.length) return;
+    if (list.length < 2) {
+      setAssistNote('lyrics', '이 곡에서는 다른 소절을 찾지 못했어요. 가사를 직접 다듬어 주세요.', 'warn');
+      return;
+    }
+    applySnippet(state.lyric.index + 1);
+    if (state.auto.reason) writeReason(true);
+    setAssistNote('lyrics', '가사에서 고른 소절 ' + (state.lyric.index + 1) + '/' + list.length + ' · 계속 누르면 다음 소절로 넘어가요.', 'ok');
+    toast('다른 소절로 바꿨어요.');
+  }
+
+  function rewriteReason() {
+    if (!CURATOR) {
+      setAssistNote('reason', '추천 이유 도구를 불러오지 못했어요. 직접 적어 주세요.', 'warn');
+      return;
+    }
+    if (!state.title.trim() && !state.artist.trim()) {
+      setAssistNote('reason', '곡명이나 아티스트를 먼저 적어 주세요.', 'warn');
+      $('#f-title').focus();
+      return;
+    }
+    state.reasonVariant = (state.reasonVariant + 1) % 6;
+    writeReason(true);
+    setAssistNote('reason', '다른 문구로 다시 썼어요 (' + (state.reasonVariant + 1) + '/6) · 마음에 드는 문장이 나올 때까지 누를 수 있어요.', 'ok');
+    toast('추천 이유를 새로 썼어요.');
+  }
+
+  let reasonTimer = null;
+  function scheduleReasonRefresh() {
+    if (!state.auto.reason) return;
+    clearTimeout(reasonTimer);
+    reasonTimer = setTimeout(function () { writeReason(true); }, 500);
+  }
+
+  /** 곡을 새로 불러왔을 때: 태그·추천 이유·가사를 이 곡 기준으로 다시 채운다 */
+  async function fillAssistForSong(fresh) {
+    const token = ++assistToken;
+    state.lyric.snippets = [];
+    state.lyric.index = 0;
+    state.lyric.keywords = [];
+    state.lyric.loading = true;
+    showAssistBtn('lyrics', false);
+
+    if (fresh) {
+      // 새 곡이므로 앞 곡의 가사·추천 이유는 남기지 않는다
+      state.lyrics = '';
+      state.auto.lyrics = false;
+      state.auto.reason = false;
+      $('#f-lyrics').value = '';
+      updateCounters();
+      scheduleRender();
+    }
+
+    refreshAutoTags(fresh);
+    if (fresh) state.reasonVariant = 0;
+    const wroteReason = writeReason(fresh);
+    showAssistBtn('reason', true);
+    if (wroteReason) {
+      setAssistNote('reason', '곡 정보와 무드 태그로 담백하게 ' + (state.reason.match(/[^.!?]+[.!?]/g) || []).length + '문장을 채웠어요. 다시 쓰기로 다른 버전도 볼 수 있어요.');
+    } else if (state.reason.trim()) {
+      setAssistNote('reason', '직접 쓴 추천 이유는 그대로 두었어요. 다시 쓰기를 누르면 새로 써 드려요.');
+    }
+
+    if (!LYRICS) {
+      state.lyric.loading = false;
+      setAssistNote('lyrics', '가사 도구를 불러오지 못했어요. 가사는 직접 적어 주세요.', 'warn');
+      return;
+    }
+
+    setAssistNote('lyrics', 'LRCLIB에서 이 곡의 가사를 찾는 중…', 'busy');
+    let res = null;
+    try {
+      res = await LYRICS.find({ title: state.title, artist: state.artist, genre: state.genre });
+    } catch (e) {
+      res = { status: 'error' };
+    }
+    if (token !== assistToken) return;   // 그 사이 다른 곡을 불러왔으면 이 응답은 버린다
+    state.lyric.loading = false;
+
+    if (res && res.status === 'ok' && res.snippets && res.snippets.length) {
+      state.lyric.snippets = res.snippets;
+      state.lyric.keywords = LYRICS.keywordsOf(res.lines.join('\n'));
+      if (state.auto.lyrics || !state.lyrics.trim()) applySnippet(0);
+      refreshAutoTags(false);
+      if (state.auto.reason) { state.reasonVariant = 0; writeReason(true); }
+      showAssistBtn('lyrics', true);
+      setAssistNote('lyrics', 'LRCLIB에서 가사 ' + res.lines.length + '줄을 찾았어요 · 인상적인 소절을 넣었습니다.' + (res.snippets.length > 1 ? ' 다른 소절도 뽑아 보세요.' : ''), 'ok');
+      if (state.auto.reason) {
+        setAssistNote('reason', '가사 분위기까지 반영해 추천 이유를 다시 채웠어요.', 'ok');
+      }
+    } else if (res && res.status === 'rate') {
+      setAssistNote('lyrics', '가사 서버가 잠시 붐비네요. 조금 뒤에 곡 링크를 다시 불러오면 시도합니다.', 'warn');
+    } else if (res && res.status === 'empty') {
+      setAssistNote('lyrics', '곡명을 먼저 채우면 가사를 찾아 드려요.', 'warn');
+    } else {
+      setAssistNote('lyrics', '이 곡은 LRCLIB에서 가사를 찾지 못했어요. 가사는 직접 적어 주셔도 됩니다.', 'warn');
+    }
+  }
+
+  /** 곡을 새로 시작할 때(예시·보관함·새로 쓰기) 자동 채우기 흔적을 지운다 */
+  function clearAssist() {
+    assistToken++;
+    state.auto = { lyrics: false, reason: false };
+    state.autoTags = [];
+    state.reasonVariant = 0;
+    state.lyric = { snippets: [], index: 0, keywords: [], loading: false, total: 0 };
+    showAssistBtn('lyrics', false);
+    showAssistBtn('reason', true);
+    setAssistNote('lyrics', '곡 링크나 검색으로 곡을 불러오면 가사를 찾아 대표 소절을 채워 드려요.');
+    setAssistNote('reason', '추천 이유 다시 쓰기를 누르면 곡 정보에 맞춰 새로 써 드려요.');
+  }
+
   /* ---------- 비율 & 테마 버튼 ---------- */
 
   function shapeClass(id) {
@@ -658,6 +866,7 @@
     state.handle = d.handle;
     state.cover = null;
     state.autoMeta = { genre: '', year: '' };
+    clearAssist();
     if (ex.theme) state.theme = ex.theme;
     if (ex.ratio) state.ratio = ex.ratio;
 
@@ -680,6 +889,7 @@
     state.handle = '';
     state.cover = null;
     state.autoMeta = { genre: '', year: '' };
+    clearAssist();
     paintCoverUI();
     syncFormFromState();
     const results = $('#search-results');
@@ -828,6 +1038,7 @@
     state.tags = Array.isArray(item.tags) ? item.tags.slice() : [];
     state.handle = item.handle || '';
     state.autoMeta = { genre: '', year: '' };
+    clearAssist();
     if (item.theme) state.theme = item.theme;
     if (item.ratio) state.ratio = item.ratio;
 
@@ -1009,6 +1220,9 @@
       const el = $(id);
       el.addEventListener('input', function () {
         state[key] = el.value;
+        if (key === 'lyrics') state.auto.lyrics = false;
+        if (key === 'reason') state.auto.reason = false;
+        if (key === 'genre') scheduleReasonRefresh();
         if (key === 'lyrics' || key === 'reason') updateCounters();
         scheduleRender();
       });
@@ -1024,6 +1238,7 @@
       const cleaned = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
       e.target.value = cleaned;
       state.year = cleaned;
+      scheduleReasonRefresh();
       scheduleRender();
     });
 
@@ -1041,6 +1256,10 @@
         addCustomTag();
       }
     });
+
+    showAssistBtn('reason', true);
+    $('#btn-lyric-next').addEventListener('click', nextSnippet);
+    $('#btn-reason-rewrite').addEventListener('click', rewriteReason);
 
     $('#btn-save').addEventListener('click', saveCurrent);
     $('#btn-reset').addEventListener('click', resetAll);

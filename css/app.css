@@ -394,6 +394,15 @@ textarea::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-r
 .autofill-note.warn { color: #ffcb8a; }
 .autofill-note.ok { color: rgba(185, 162, 255, 0.92); }
 
+/* 자동 가사·추천 이유 보조 줄 */
+.assist-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 8px; }
+.assist-row .btn { flex: 0 0 auto; }
+.assist-note { flex: 1 1 170px; min-width: 0; font-size: 11.5px; line-height: 1.45; color: var(--muted-2); }
+.assist-note.ok { color: rgba(185, 162, 255, 0.92); }
+.assist-note.warn { color: #ffcb8a; }
+.assist-note.busy { color: rgba(241, 239, 234, 0.6); }
+.assist-row .btn[disabled] { opacity: 0.5; cursor: default; transform: none; }
+
 .link-row .btn[disabled], .search-row .btn[disabled] { opacity: 0.55; cursor: progress; transform: none; }
 
 .search-results { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }

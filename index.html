@@ -12,6 +12,8 @@
 <script defer src="js/jszip.min.js"></script>
 <script defer src="js/data.js"></script>
 <script defer src="js/lookup.js"></script>
+<script defer src="js/lyrics.js"></script>
+<script defer src="js/curator.js"></script>
 <script defer src="js/color.js"></script>
 <script defer src="js/render.js"></script>
 <script defer src="js/captions.js"></script>
@@ -128,14 +130,22 @@
             <h2>카드 내용</h2>
             <span class="muted">2·3장에 들어갈 문장</span>
           </div>
-          <label class="field">
+          <div class="field">
             <span class="label">대표 가사 · 킬링 포인트 <i>선택</i><span class="counter" id="c-lyrics">0/180</span></span>
             <textarea id="f-lyrics" rows="3" maxlength="180" placeholder="가장 좋아하는 한 줄이나 후렴을 적어 주세요.&#10;줄바꿈으로 끊으면 그대로 나뉘어요."></textarea>
-          </label>
-          <label class="field">
+            <div class="assist-row">
+              <button type="button" class="btn mini" id="btn-lyric-next" hidden>가사 다른 소절 뽑기</button>
+              <span class="assist-note" id="lyrics-note" role="status">곡을 불러오면 가사를 찾아 대표 소절을 채워 드려요.</span>
+            </div>
+          </div>
+          <div class="field">
             <span class="label">추천 이유 · 감상평 <i>1~3줄</i><span class="counter" id="c-reason">0/220</span></span>
             <textarea id="f-reason" rows="3" maxlength="220" placeholder="어떤 순간에 왜 좋은지 한두 문장으로 적어 주세요."></textarea>
-          </label>
+            <div class="assist-row">
+              <button type="button" class="btn mini" id="btn-reason-rewrite" hidden>추천 이유 다시 쓰기</button>
+              <span class="assist-note" id="reason-note" role="status">곡 정보에 맞춰 담백한 감상평을 자동으로 채워 드려요.</span>
+            </div>
+          </div>
           <div class="field">
             <span class="label">추천 무드 · 상황 <i id="tag-count">0개 선택</i></span>
             <div class="chips" id="tag-chips" role="group" aria-label="추천 무드 태그 선택"></div>
