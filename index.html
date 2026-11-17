@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>음악 카드뉴스 스튜디오 — 곡 하나로 인스타·쇼츠 카드 3장</title>
+<meta name="description" content="좋아하는 곡을 입력하면 인스타그램 피드·릴스용 카드뉴스 3장과 캡션, 쇼츠 제목·설명까지 만들어 주는 브라우저 스튜디오.">
+<meta name="theme-color" content="#08080b">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b0b10'/%3E%3Cpath d='M38 16v24a7 7 0 1 1-4-6.3V22l-14 4v18a7 7 0 1 1-4-6.3V22z' fill='%23b9a2ff'/%3E%3C/svg%3E">
+<link rel="preload" href="assets/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/app.css">
+<script defer src="js/jszip.min.js"></script>
+<script defer src="js/data.js"></script>
+<script defer src="js/color.js"></script>
+<script defer src="js/render.js"></script>
+<script defer src="js/captions.js"></script>
+<script defer src="js/app.js"></script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><path d="M10 18V6l11-2v12"/></svg>
+      </span>
+      <div class="brand-text">
+        <h1>음악 카드뉴스 스튜디오</h1>
+        <p>곡 하나로 인스타 카드 3장 + 캡션 + 쇼츠 문구까지</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button type="button" class="btn ghost" id="btn-reset">새로 쓰기</button>
+      <button type="button" class="btn primary" id="btn-save">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        보관함에 저장
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <div class="col-editor">
+      <section class="panel quickstart" aria-labelledby="quick-h">
+        <div class="panel-head">
+          <h2 id="quick-h">예시로 시작해 보기</h2>
+          <span class="muted">누르면 폼과 테마가 한 번에 채워져요</span>
+        </div>
+        <div class="quick-list" id="example-list"></div>
+      </section>
+
+      <form class="panel editor" id="song-form" autocomplete="off" novalidate>
+        <section class="form-section">
+          <div class="section-head">
+            <h2>곡 정보</h2>
+            <span class="muted">표지에 들어갈 기본 정보</span>
+          </div>
+          <div class="grid-2">
+            <label class="field">
+              <span class="label">곡명 <em>*</em></span>
+              <input id="f-title" type="text" maxlength="60" placeholder="예: 새벽 4시의 우리">
+            </label>
+            <label class="field">
+              <span class="label">아티스트 <em>*</em></span>
+              <input id="f-artist" type="text" maxlength="40" placeholder="예: 유하">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field">
+              <span class="label">장르 <i>선택</i></span>
+              <input id="f-genre" type="text" list="genre-list" maxlength="20" placeholder="예: R&amp;B">
+              <datalist id="genre-list"></datalist>
+            </label>
+            <label class="field">
+              <span class="label">발매년도 <i>선택</i></span>
+              <input id="f-year" type="text" inputmode="numeric" maxlength="4" placeholder="예: 2025">
+            </label>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <div class="section-head">
+            <h2>앨범 커버</h2>
+            <span class="muted">없으면 LP 그래픽으로 자동 생성</span>
+          </div>
+          <div class="drop" id="drop" role="button" tabindex="0" aria-describedby="drop-hint">
+            <input id="f-cover" type="file" accept="image/*" class="sr-only" aria-label="앨범 커버 이미지 파일 선택">
+            <div class="drop-empty" id="drop-empty">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+              <strong>커버 이미지를 끌어다 놓거나 클릭</strong>
+              <small id="drop-hint">JPG · PNG · WEBP (붙여넣기도 됩니다) · 없으면 테마 색 그라데이션과 LP 그래픽이 들어가요</small>
+            </div>
+            <div class="drop-filled" id="drop-filled" hidden>
+              <img id="cover-thumb" alt="업로드한 앨범 커버 미리보기">
+              <div class="drop-info">
+                <strong id="cover-name">cover.jpg</strong>
+                <small id="cover-size">커버 색을 테마에 맞춰 조정합니다</small>
+              </div>
+              <button type="button" class="icon-btn" id="btn-cover-remove" aria-label="커버 이미지 삭제">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <div class="section-head">
+            <h2>카드 내용</h2>
+            <span class="muted">2·3장에 들어갈 문장</span>
+          </div>
+          <label class="field">
+            <span class="label">대표 가사 · 킬링 포인트 <i>선택</i><span class="counter" id="c-lyrics">0/180</span></span>
+            <textarea id="f-lyrics" rows="3" maxlength="180" placeholder="가장 좋아하는 한 줄이나 후렴을 적어 주세요.&#10;줄바꿈으로 끊으면 그대로 나뉘어요."></textarea>
+          </label>
+          <label class="field">
+            <span class="label">추천 이유 · 감상평 <i>1~3줄</i><span class="counter" id="c-reason">0/220</span></span>
+            <textarea id="f-reason" rows="3" maxlength="220" placeholder="어떤 순간에 왜 좋은지 한두 문장으로 적어 주세요."></textarea>
+          </label>
+          <div class="field">
+            <span class="label">추천 무드 · 상황 <i id="tag-count">0개 선택</i></span>
+            <div class="chips" id="tag-chips" role="group" aria-label="추천 무드 태그 선택"></div>
+            <div class="tag-add">
+              <input id="f-tag" type="text" maxlength="12" placeholder="직접 입력 (예: 겨울 출근길)">
+              <button type="button" class="btn mini" id="btn-tag-add">추가</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <div class="section-head">
+            <h2>워터마크</h2>
+            <span class="muted">카드 아래에 작게 들어가요</span>
+          </div>
+          <label class="field">
+            <span class="label">내 계정 핸들 <i>선택</i></span>
+            <div class="input-prefix">
+              <span>@</span>
+              <input id="f-handle" type="text" maxlength="30" placeholder="my_music_note">
+            </div>
+          </label>
+        </section>
+      </form>
+
+      <section class="panel library" aria-labelledby="lib-h">
+        <div class="panel-head">
+          <h2 id="lib-h">내 곡 보관함 <span class="count" id="lib-count">0</span></h2>
+          <span class="muted">이 브라우저에만 저장돼요</span>
+        </div>
+        <ul class="lib-list" id="lib-list"></ul>
+        <p class="lib-empty" id="lib-empty">아직 저장한 곡이 없어요. 위의 <b>보관함에 저장</b>을 누르면 여기에 쌓입니다.</p>
+      </section>
+    </div>
+
+    <div class="col-studio">
+      <section class="panel studio" aria-labelledby="studio-h">
+        <div class="panel-head studio-head">
+          <h2 id="studio-h">카드 미리보기</h2>
+          <span class="muted" id="ratio-badge">4:5 · 1080×1350</span>
+        </div>
+
+        <div class="tool-row">
+          <span class="tool-label">비율</span>
+          <div class="seg" id="ratio-list" role="radiogroup" aria-label="카드 비율"></div>
+        </div>
+        <div class="tool-row">
+          <span class="tool-label">테마</span>
+          <div class="themes" id="theme-list" role="radiogroup" aria-label="카드 테마"></div>
+        </div>
+
+        <div class="cards" id="card-list">
+          <figure class="card" data-index="0">
+            <div class="canvas-wrap"><canvas id="cv-0" width="1080" height="1350" aria-label="1장 표지 카드 미리보기"></canvas></div>
+            <figcaption>
+              <span class="card-name"><b>01</b> 표지</span>
+              <button type="button" class="btn tiny" data-download="0">PNG</button>
+            </figcaption>
+          </figure>
+          <figure class="card" data-index="1">
+            <div class="canvas-wrap"><canvas id="cv-1" width="1080" height="1350" aria-label="2장 가사 카드 미리보기"></canvas></div>
+            <figcaption>
+              <span class="card-name"><b>02</b> 킬링 포인트</span>
+              <button type="button" class="btn tiny" data-download="1">PNG</button>
+            </figcaption>
+          </figure>
+          <figure class="card" data-index="2">
+            <div class="canvas-wrap"><canvas id="cv-2" width="1080" height="1350" aria-label="3장 큐레이션 카드 미리보기"></canvas></div>
+            <figcaption>
+              <span class="card-name"><b>03</b> 큐레이션</span>
+              <button type="button" class="btn tiny" data-download="2">PNG</button>
+            </figcaption>
+          </figure>
+        </div>
+
+        <div class="download-row">
+          <button type="button" class="btn primary wide" id="btn-download-all">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            3장 모두 저장
+          </button>
+          <button type="button" class="btn outline" id="btn-download-zip">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+            ZIP으로 받기
+          </button>
+        </div>
+        <p class="download-note">1080px 원본 크기로 저장됩니다. ZIP을 쓰면 3장이 한 파일로 담겨요.</p>
+
+        <div class="captions">
+          <div class="cap-block">
+            <header>
+              <h3>인스타그램 캡션</h3>
+              <span class="cap-meta" id="ig-count">0자</span>
+              <button type="button" class="btn tiny ghost" data-copy="ig">복사</button>
+            </header>
+            <pre id="out-ig" class="cap-text"></pre>
+          </div>
+          <div class="cap-block">
+            <header>
+              <h3>유튜브 쇼츠 제목</h3>
+              <span class="cap-meta" id="yt-title-count">0자</span>
+              <button type="button" class="btn tiny ghost" data-copy="yt-title">복사</button>
+            </header>
+            <pre id="out-yt-title" class="cap-text single"></pre>
+          </div>
+          <div class="cap-block">
+            <header>
+              <h3>유튜브 쇼츠 설명</h3>
+              <span class="cap-meta" id="yt-desc-count">0자</span>
+              <button type="button" class="btn tiny ghost" data-copy="yt-desc">복사</button>
+            </header>
+            <pre id="out-yt-desc" class="cap-text"></pre>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <span>모든 이미지와 문구는 이 브라우저에서 만들어지고, 서버로 전송되지 않습니다.</span>
+    <span>음악 카드뉴스 스튜디오</span>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
