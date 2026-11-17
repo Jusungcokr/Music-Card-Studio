@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="css/app.css">
 <script defer src="js/jszip.min.js"></script>
 <script defer src="js/data.js"></script>
+<script defer src="js/lookup.js"></script>
 <script defer src="js/color.js"></script>
 <script defer src="js/render.js"></script>
 <script defer src="js/captions.js"></script>
@@ -48,6 +49,27 @@
       </section>
 
       <form class="panel editor" id="song-form" autocomplete="off" novalidate>
+        <section class="form-section autofill" aria-labelledby="autofill-h">
+          <div class="section-head">
+            <h2 id="autofill-h">곡 링크로 자동 채우기</h2>
+            <span class="muted">유튜브 · 스포티파이 · 애플뮤직</span>
+          </div>
+          <div class="link-row">
+            <input id="f-link" type="url" inputmode="url" spellcheck="false" autocomplete="off"
+                   placeholder="곡 링크 붙여넣기 (youtube.com/watch, youtu.be, open.spotify.com, music.apple.com)"
+                   aria-label="곡 링크">
+            <button type="button" class="btn primary" id="btn-link-load">불러오기</button>
+          </div>
+          <p class="autofill-note" id="link-note">링크를 붙여 넣으면 곡명·아티스트·앨범 커버가 한 번에 채워져요.</p>
+          <div class="search-row">
+            <input id="f-search" type="search" spellcheck="false" autocomplete="off"
+                   placeholder="곡명이나 아티스트로 찾기 (예: 아이유 밤편지)"
+                   aria-label="곡명 또는 아티스트 검색어">
+            <button type="button" class="btn outline" id="btn-search">음원 검색</button>
+          </div>
+          <ul class="search-results" id="search-results" aria-label="음원 검색 결과" hidden></ul>
+        </section>
+
         <section class="form-section">
           <div class="section-head">
             <h2>곡 정보</h2>

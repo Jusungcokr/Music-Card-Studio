@@ -4,6 +4,7 @@
 
   const DATA = window.MusicData;
   const COLOR = window.MusicColor;
+  const LOOKUP = window.MusicLookup || null;
   const RENDER = function (ctx, w, h, d, theme, accent, ratio, i) {
     window.MusicRender.render(ctx, w, h, d, theme, accent, ratio, i);
   };
@@ -245,7 +246,10 @@
       filled.hidden = false;
       $('#cover-thumb').src = state.cover.dataUrl;
       $('#cover-name').textContent = state.cover.name;
-      $('#cover-size').textContent = Math.max(1, Math.round(state.cover.size / 1024)) + 'KB · 커버 색에 맞춰 테마를 조정했어요';
+      const sizeText = state.cover.size
+        ? Math.max(1, Math.round(state.cover.size / 1024)) + 'KB'
+        : (state.cover.source === 'link' ? '링크에서 가져온 커버' : '이미지');
+      $('#cover-size').textContent = sizeText + ' · 커버 색에 맞춰 테마를 조정했어요';
     } else {
       empty.hidden = false;
       filled.hidden = true;
@@ -308,6 +312,245 @@
           break;
         }
       }
+    });
+  }
+
+  /* ---------- 곡 링크 · 음원 검색 자동 채우기 ---------- */
+
+  const PROVIDER_LABEL = { youtube: '유튜브', spotify: '스포티파이', apple: '애플뮤직' };
+
+  function setNote(text, tone) {
+    const el = $('#link-note');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'autofill-note' + (tone ? ' ' + tone : '');
+  }
+
+  function setBusy(kind, on) {
+    const btn = kind === 'link' ? $('#btn-link-load') : $('#btn-search');
+    if (!btn) return;
+    if (on) {
+      if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = kind === 'link' ? '불러오는 중…' : '찾는 중…';
+    } else {
+      btn.disabled = false;
+      if (btn.dataset.label) btn.textContent = btn.dataset.label;
+    }
+  }
+
+  function clip(str, max) {
+    return String(str || '').slice(0, max);
+  }
+
+  async function loadCoverFromUrls(urls, label) {
+    if (!LOOKUP) return false;
+    const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
+    for (let i = 0; i < list.length; i++) {
+      try {
+        const img = await LOOKUP.loadCanvasImage(list[i]);
+        let dataUrl = '';
+        try { dataUrl = imageDataUrl(img, 900, 0.9); } catch (e) { dataUrl = ''; }
+        state.cover = {
+          img: img,
+          dataUrl: dataUrl || list[i],
+          name: label || '앨범 커버',
+          size: 0,
+          palette: COLOR.extractColor(img),
+          source: 'link'
+        };
+        paintCoverUI();
+        scheduleRender();
+        return true;
+      } catch (e) {
+        /* 다음 후보 이미지로 */
+      }
+    }
+    return false;
+  }
+
+  async function applySongInfo(info, sourceLabel) {
+    if (!info) return false;
+    if (!info.title && !info.artist) {
+      if (info.coverUrls && info.coverUrls.length) {
+        const ok = await loadCoverFromUrls(info.coverUrls, '유튜브 썸네일');
+        if (ok) {
+          setNote('제목은 가져오지 못했지만 썸네일을 커버로 넣었어요. 곡명과 아티스트는 직접 적어 주세요.', 'warn');
+          toast('썸네일만 넣었어요. 곡명은 직접 적어 주세요.');
+          return true;
+        }
+      }
+      setNote('곡 정보를 읽지 못했어요. 아래 곡명 검색이나 직접 입력을 이용해 주세요.', 'warn');
+      toast('곡 정보를 읽지 못했어요. 검색으로 찾아보세요.');
+      return false;
+    }
+
+    if (info.title) state.title = clip(info.title, 60);
+    if (info.artist) state.artist = clip(info.artist, 40);
+    if (info.year) state.year = clip(info.year, 4);
+    if (info.genre) state.genre = clip(info.genre, 20);
+    syncFormFromState();
+    scheduleRender();
+
+    let coverOk = false;
+    if (info.coverUrls && info.coverUrls.length) {
+      coverOk = await loadCoverFromUrls(info.coverUrls, info.title ? info.title + ' 커버' : '앨범 커버');
+    }
+
+    const name = [info.artist, info.title].filter(Boolean).join(' - ');
+    const where = sourceLabel || PROVIDER_LABEL[info.provider === 'YouTube' ? 'youtube' : info.provider === 'Spotify' ? 'spotify' : 'apple'] || '링크';
+    let line = where + '에서 ‘' + name + '’을(를) 채웠어요';
+    if (coverOk) line += ' · 앨범 커버도 넣었어요.';
+    else line += ' · 커버는 직접 올려 주세요.';
+    if (info.note) line += ' (' + info.note + ')';
+    setNote(line, coverOk ? 'ok' : '');
+    toast('곡 정보를 채웠어요. 필요하면 다듬어 주세요.');
+    savePrefs();
+    return true;
+  }
+
+  function showBlockedNote(reason) {
+    setNote('이 사이트 링크는 브라우저 보안상 직접 불러올 수 없어, 아래 곡명 검색이나 직접 입력을 이용해 주세요.', 'warn');
+    toast(reason ? reason + ' 링크는 바로 불러올 수 없어요.' : '이 링크는 바로 불러올 수 없어요.');
+  }
+
+  async function fillFromLink(raw) {
+    const value = String(raw || '').trim();
+    if (!value) {
+      setNote('곡 링크를 붙여 넣어 주세요.', 'warn');
+      $('#f-link').focus();
+      return;
+    }
+    if (!LOOKUP) {
+      setNote('자동 채우기 도구를 불러오지 못했어요. 페이지를 새로고침해 주세요.', 'warn');
+      return;
+    }
+
+    const parsed = LOOKUP.parseLink(value);
+
+    if (parsed.kind === 'blocked') { showBlockedNote(parsed.site); return; }
+    if (parsed.kind === 'unknown') { showBlockedNote(parsed.host); return; }
+    if (parsed.kind === 'spotify-other') {
+      setNote('스포티파이는 곡(track) 링크만 바로 불러올 수 있어요. 곡을 열어 주소를 다시 복사하거나 아래 곡명 검색을 이용해 주세요.', 'warn');
+      return;
+    }
+    if (parsed.kind === 'apple-page') {
+      setNote('애플뮤직 곡 번호(?i=…)를 찾지 못했어요. 곡 화면에서 주소를 다시 복사하거나 아래 곡명 검색을 이용해 주세요.', 'warn');
+      return;
+    }
+    if (parsed.kind === 'invalid') {
+      setNote('링크를 알아보지 못했어요. 주소 전체를 붙여 넣어 주세요.', 'warn');
+      return;
+    }
+
+    setBusy('link', true);
+    setNote('링크에서 곡 정보를 가져오는 중…');
+    try {
+      const info = await LOOKUP.fromLink(value);
+      await applySongInfo(info, PROVIDER_LABEL[parsed.kind] || '링크');
+    } catch (e) {
+      setNote('링크에서 곡 정보를 가져오지 못했어요. 잠시 뒤 다시 시도하거나 아래 곡명 검색을 이용해 주세요.', 'warn');
+      toast('곡 정보를 가져오지 못했어요.');
+    } finally {
+      setBusy('link', false);
+    }
+  }
+
+  async function runSearch() {
+    const input = $('#f-search');
+    const term = input.value.trim();
+    if (!term) {
+      toast('곡명이나 아티스트를 먼저 적어 주세요.');
+      input.focus();
+      return;
+    }
+    if (!LOOKUP) {
+      setNote('음원 검색 도구를 불러오지 못했어요. 페이지를 새로고침해 주세요.', 'warn');
+      return;
+    }
+    setBusy('search', true);
+    setNote('애플뮤직에서 ‘' + term + '’을(를) 찾는 중…');
+    try {
+      const list = await LOOKUP.search(term, 5);
+      renderSearchResults(list, term);
+    } catch (e) {
+      renderSearchResults([], term);
+    } finally {
+      setBusy('search', false);
+    }
+  }
+
+  function renderSearchResults(list, term) {
+    const wrap = $('#search-results');
+    wrap.innerHTML = '';
+    if (!list || !list.length) {
+      wrap.hidden = true;
+      setNote('‘' + term + '’에 맞는 곡을 찾지 못했어요. 다른 검색어로 시도해 주세요.', 'warn');
+      return;
+    }
+    wrap.hidden = false;
+    list.forEach(function (info) {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sr-btn';
+      const cover = info.coverUrls && info.coverUrls[0];
+      const thumb = cover
+        ? '<img class="sr-thumb" src="' + escapeHtml(cover) + '" alt="" loading="lazy" referrerpolicy="no-referrer">'
+        : '<span class="sr-thumb empty" aria-hidden="true">♪</span>';
+      const meta = [info.artist, info.year, info.genre].filter(Boolean).join(' · ');
+      btn.innerHTML = thumb +
+        '<span class="sr-text"><strong>' + escapeHtml(info.title) + '</strong>' +
+        '<small>' + escapeHtml(meta) + '</small></span>' +
+        '<span class="sr-go">넣기</span>';
+      btn.setAttribute('aria-label', info.title + ' - ' + info.artist + ' 정보 넣기');
+      btn.addEventListener('click', function () { chooseSearchResult(info); });
+      li.appendChild(btn);
+      wrap.appendChild(li);
+    });
+    setNote('‘' + term + '’ 검색 결과 ' + list.length + '개 · 넣을 곡을 눌러 주세요.', 'ok');
+  }
+
+  async function chooseSearchResult(info) {
+    setNote('곡 정보를 채우는 중…');
+    await applySongInfo(info, '애플뮤직');
+  }
+
+  function bindAutofill() {
+    const linkInput = $('#f-link');
+    const searchInput = $('#f-search');
+    const form = $('#song-form');
+
+    if (form) {
+      form.addEventListener('submit', function (e) { e.preventDefault(); });
+    }
+
+    if (!linkInput) return;    linkInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        fillFromLink(linkInput.value);
+      }
+    });
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        runSearch();
+      }
+    });
+
+    $('#btn-link-load').addEventListener('click', function () { fillFromLink(linkInput.value); });
+    $('#btn-search').addEventListener('click', runSearch);
+
+    // 링크를 붙여 넣으면 바로 시도
+    linkInput.addEventListener('paste', function () {
+      setTimeout(function () {
+        const value = linkInput.value.trim();
+        if (!value || !LOOKUP) return;
+        const kind = LOOKUP.parseLink(value).kind;
+        if (kind === 'youtube' || kind === 'spotify' || kind === 'apple' || kind === 'blocked' || kind === 'unknown' || kind === 'spotify-other') {
+          fillFromLink(value);
+        }
+      }, 40);
     });
   }
 
@@ -427,6 +670,12 @@
     state.cover = null;
     paintCoverUI();
     syncFormFromState();
+    const results = $('#search-results');
+    if (results) { results.innerHTML = ''; results.hidden = true; }
+    const linkInput = $('#f-link');
+    if (linkInput) linkInput.value = '';
+    setNote('링크를 붙여 넣으면 곡명·아티스트·앨범 커버가 한 번에 채워져요.');
+    savePrefs();
     scheduleRender();
     toast('새 카드로 비웠어요.');
     $('#f-title').focus();
@@ -454,17 +703,22 @@
     }
   }
 
+  function imageDataUrl(img, max, quality) {
+    const limit = max || 900;
+    const w = img.naturalWidth || limit;
+    const h = img.naturalHeight || limit;
+    const scale = Math.min(1, limit / Math.max(w, h));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * scale));
+    c.height = Math.max(1, Math.round(h * scale));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', quality || 0.82);
+  }
+
   function coverForStorage() {
     if (!state.cover) return null;
     try {
-      const img = state.cover.img;
-      const max = 900;
-      const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(img.naturalWidth * scale));
-      c.height = Math.max(1, Math.round(img.naturalHeight * scale));
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      return c.toDataURL('image/jpeg', 0.82);
+      return imageDataUrl(state.cover.img, 900, 0.82);
     } catch (e) {
       return null;
     }
@@ -796,6 +1050,7 @@
     buildExamples();
     bindFields();
     bindDropzone();
+    bindAutofill();
 
     const genres = $('#genre-list');
     DATA.GENRES.forEach(function (g) {
