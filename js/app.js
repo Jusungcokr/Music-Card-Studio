@@ -27,7 +27,9 @@
     handle: '',
     ratio: '4:5',
     theme: 'vinyl',
-    cover: null
+    cover: null,
+    // 자동 채우기로 들어간 장르·발매년도 (다른 곡을 불러올 때 헌값을 지우기 위해 기억)
+    autoMeta: { genre: '', year: '' }
   };
 
   let renderQueued = false;
@@ -387,8 +389,16 @@
 
     if (info.title) state.title = clip(info.title, 60);
     if (info.artist) state.artist = clip(info.artist, 40);
-    if (info.year) state.year = clip(info.year, 4);
-    if (info.genre) state.genre = clip(info.genre, 20);
+    if (state.autoMeta.genre && state.genre === state.autoMeta.genre && !info.genre) {
+      state.genre = '';
+      state.autoMeta.genre = '';
+    }
+    if (state.autoMeta.year && state.year === state.autoMeta.year && !info.year) {
+      state.year = '';
+      state.autoMeta.year = '';
+    }
+    if (info.year) { state.year = clip(info.year, 4); state.autoMeta.year = state.year; }
+    if (info.genre) { state.genre = clip(info.genre, 20); state.autoMeta.genre = state.genre; }
     syncFormFromState();
     scheduleRender();
 
@@ -647,6 +657,7 @@
     state.tags = d.tags.slice();
     state.handle = d.handle;
     state.cover = null;
+    state.autoMeta = { genre: '', year: '' };
     if (ex.theme) state.theme = ex.theme;
     if (ex.ratio) state.ratio = ex.ratio;
 
@@ -668,6 +679,7 @@
     state.tags = [];
     state.handle = '';
     state.cover = null;
+    state.autoMeta = { genre: '', year: '' };
     paintCoverUI();
     syncFormFromState();
     const results = $('#search-results');
@@ -815,6 +827,7 @@
     state.reason = item.reason || '';
     state.tags = Array.isArray(item.tags) ? item.tags.slice() : [];
     state.handle = item.handle || '';
+    state.autoMeta = { genre: '', year: '' };
     if (item.theme) state.theme = item.theme;
     if (item.ratio) state.ratio = item.ratio;
 
