@@ -114,7 +114,7 @@
   /* ---------- 문자열 정리 ---------- */
 
   const NOISE_GROUP = /(official\s*(music\s*)?video|official\s*audio|official\s*lyric[s]?\s*video|lyric[s]?\s*video|lyrics?|m\/v|\bmv\b|music\s*video|performance\s*video|visuali[sz]er|dance\s*practice|choreography|teaser|audio|4k|uhd|hd|hq|remaster(ed)?|color\s*coded|produce\s*48|가사|뮤직비디오|라이브|자막|한글\s*자막)/i;
-  const NOISE_TAIL = /\s*[-–—|:·]?\s*(official\s*(music\s*)?video|official\s*audio|official\s*lyric[s]?\s*video|lyric[s]?\s*video|lyrics?|m\/v|mv|music\s*video|visuali[sz]er|performance\s*video|audio|teaser|가사|뮤직비디오|자막)\s*$/i;
+  const NOISE_TAIL = /\s*[-–—|:·]?\s*(official(\s*(music|lyric[s]?)?\s*(video|audio|mv|m\/v))?|music\s*video|lyric[s]?\s*video|lyrics?|m\/v|mv|visuali[sz]er|performance\s*video|teaser|audio|video|live\s*(ver\.?|version)?|4k|uhd|hd|hq|remaster(ed)?|가사|뮤직비디오|자막)\s*$/i;
 
   function tidy(str) {
     return String(str == null ? '' : str).replace(/\s+/g, ' ').trim();
@@ -127,12 +127,22 @@
       return NOISE_GROUP.test(inner) ? ' ' : whole;
     });
     s = s.replace(/【[^】]*】/g, ' ');
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       const before = s;
       s = s.replace(NOISE_TAIL, '');
       if (s === before) break;
     }
     return tidy(s).replace(/^[\s\-–—|:·]+|[\s\-–—|:·]+$/g, '').trim();
+  }
+
+  /** NewJeans "Ditto" / 아이유 「밤편지」 처럼 따옴표로 묶인 형태 */
+  function splitQuoted(title) {
+    const m = String(title || '').match(/^([^"“”'‘’「」]{2,40}?)\s*["“'‘「]\s*([^"“”'’」]{1,80}?)\s*["”'’」]\s*$/);
+    if (!m) return null;
+    const left = tidy(m[1]);
+    const right = tidy(m[2]);
+    if (!left || !right) return null;
+    return { artist: left, title: right };
   }
 
   function normName(s) {
@@ -262,9 +272,17 @@
       const cleaned = stripNoise(raw);
       const split = splitArtistTitle(cleaned);
       let artist = split.artist;
-      const title = split.title || cleaned || raw;
+      let title = split.title || cleaned || raw;
       if (!artist) {
-        if (channel && normName(channel) && normName(title).indexOf(normName(channel)) === -1) artist = channel;
+        const q = splitQuoted(cleaned);
+        if (q) { artist = q.artist; title = q.title; }
+      }
+      if (!artist && channel) {
+        artist = channel;
+        const nc = normName(channel);
+        if (nc && normName(title).indexOf(nc) === 0) {
+          title = tidy(title.slice(channel.length)).replace(/^[-–—|:·"“”'‘’]+/, '').replace(/["“”'‘’]+$/, '').trim() || title;
+        }
       }
       return {
         title: title,
@@ -435,6 +453,7 @@
     isCanvasClean: isCanvasClean,
     stripNoise: stripNoise,
     splitArtistTitle: splitArtistTitle,
+    splitQuoted: splitQuoted,
     normName: normName
   };
 })(window);
